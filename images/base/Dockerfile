@@ -223,9 +223,10 @@ COPY --from=build-fuse-overlayfs /_LICENSES/* /LICENSES/
 
 
 # install go
-RUN apt-get update && apt-get install make -y && apt-get install wget -y
-RUN wget https://go.dev/dl/go1.21.0.linux-amd64.tar.gz
-RUN rm -rf /usr/local/go && tar -C /usr/local -xzf go1.21.0.linux-amd64.tar.gz
+RUN apt-get update && apt-get install make -y
+# RUN wget https://go.dev/dl/go1.21.0.linux-amd64.tar.gz
+COPY files/go1.21.0.linux-amd64.tar.gz /root/
+RUN rm -rf /usr/local/go && tar -C /usr/local -xzf go1.21.0.linux-amd64.tar.gz && rm -rf go1.21.0.linux-amd64.tar.gz
 ENV PATH=$PATH:/usr/local/go/bin
 
 #Clone virtual-kubelet/cri
