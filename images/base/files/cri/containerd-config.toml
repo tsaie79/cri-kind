@@ -21,7 +21,7 @@ version = 2
   base_runtime_spec = "/etc/containerd/cri-base.json"
   [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
     # use systemd cgroup by default
-    SystemdCgroup = true
+    SystemdCgroup = false #true
 
 # Setup a runtime with the magic name ("test-handler") used for Kubernetes
 # runtime class tests ...
