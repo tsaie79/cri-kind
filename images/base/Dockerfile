@@ -110,6 +110,9 @@ RUN dpkg --add-architecture arm64 && dpkg --add-architecture amd64 \
     libseccomp-dev:amd64 libseccomp-dev:arm64
 # set by makefile to .go-version
 ARG GO_VERSION
+# print go version for debugging
+RUN echo "Building with go version: ${GO_VERSION}" # TODO: remove
+
 RUN eval "$(gimme "${GO_VERSION}")" \
     && GOBIN=/usr/local/bin go install github.com/google/go-licenses@latest
 
@@ -190,6 +193,33 @@ RUN git clone --filter=tree:0 "${CONTAINERD_FUSE_OVERLAYFS_CLONE_URL}" /fuse-ove
     && GOARCH=$TARGETARCH go-licenses save --save_path=/_LICENSES ./cmd/containerd-fuse-overlayfs-grpc
 
 
+
+# stage for building cri 
+# untar cri.tgz
+FROM go-build as build-cri
+ARG TARGETARCH GO_VERSION
+ARG CRI_CLONE_URL="https://github.com/tsaie79/cri-jiriaf.git"
+RUN git clone --filter=tree:0 "${CRI_CLONE_URL}" /root/cri \
+    && cd /root/cri \
+    && eval "$(gimme "${GO_VERSION}")" \
+    && export GOARCH=$TARGETARCH && export CC=$(target-cc) && export CGO_ENABLED=1 \
+    && make build 
+    # && GOARCH=$TARGETARCH go-licenses save --save_path=/_LICENSES .
+# COPY files/cri/cri.tgz /root/
+# RUN tar -xvf /root/cri.tgz -C /root/\
+#     && rm -rf /root/cri.tgz && cd /root/cri \
+#     && eval "$(gimme "${GO_VERSION}")" \
+#     # print the current folder
+#     && pwd \
+#     && export GOARCH=$TARGETARCH && export CC=$(target-cc) && export CGO_ENABLED=1 \
+#     && make build \
+#     && GOARCH=$TARGETARCH go-licenses save --save_path=/_LICENSES .
+
+# tar -xvf /root/cri.tgz -C /root/ && rm -rf /root/cri.tgz
+# WORKDIR /root/cri
+# RUN make build
+
+
 # build final image layout from other stages
 FROM base as build
 # copy over containerd build and install
@@ -219,22 +249,33 @@ COPY --from=build-cni /_LICENSES/* /LICENSES/
 # copy over containerd-fuse-overlayfs and install
 COPY --from=build-fuse-overlayfs /fuse-overlayfs-snapshotter/bin/containerd-fuse-overlayfs-grpc /usr/local/bin/
 COPY --from=build-fuse-overlayfs /_LICENSES/* /LICENSES/
+# copy over cri and install
+COPY --from=build-cri /root/cri/bin/virtual-kubelet /usr/local/bin/
+
 
 
 
 # install go
-RUN apt-get update && apt-get install make -y
-# RUN wget https://go.dev/dl/go1.21.0.linux-amd64.tar.gz
-COPY files/go1.21.0.linux-amd64.tar.gz /root/
-RUN rm -rf /usr/local/go && tar -C /usr/local -xzf /root/go1.21.0.linux-amd64.tar.gz && rm -rf /root/go1.21.0.linux-amd64.tar.gz
-ENV PATH=$PATH:/usr/local/go/bin
+# RUN apt-get update && apt-get install make -y
+# # RUN wget https://go.dev/dl/go1.21.0.linux-amd64.tar.gz
+# COPY files/go1.21.0.linux-amd64.tar.gz /root/
+# RUN rm -rf /usr/local/go && tar -C /usr/local -xzf /root/go1.21.0.linux-amd64.tar.gz && rm -rf /root/go1.21.0.linux-amd64.tar.gz
+# ENV PATH=$PATH:/usr/local/go/bin
 
-#Clone virtual-kubelet/cri
-# untar cri.tgz
-COPY files/cri/cri.tgz /root/
-RUN tar -xvf /root/cri.tgz -C /root/ && rm -rf /root/cri.tgz
-WORKDIR /root/cri
-RUN make build
+
+# squash down to one compressed layer, without any lingering whiteout files etc
+FROM scratch
+COPY --from=build / /
+# add metadata, must be done after the squashing
+# first tell systemd that it is in docker (it will check for the container env)
+# https://systemd.io/CONTAINER_INTERFACE/
+ENV container docker
+
+# systemd exits on SIGRTMIN+3, not SIGTERM (which re-executes it)
+# https://bugzilla.redhat.com/show_bug.cgi?id=1201657
+STOPSIGNAL SIGRTMIN+3
+# NOTE: this is *only* for documentation, the entrypoint is overridden later
+ENTRYPOINT [ "/usr/local/bin/entrypoint", "/sbin/init" ]
 
 # cp files admin.conf, client.crt, client.key from outside container to inside container
 COPY files/cri/admin.conf /root/cri/admin.conf
@@ -247,28 +288,4 @@ COPY files/cri/containerd-config.toml /etc/containerd/config.toml
 # define the environment variable
 ENV KUBERNETES_SERVICE_HOST=cluster1-control-plane
 ENV KUBERNETES_SERVICE_PORT=6443
-
-RUN apt-get install -y vim && apt-get install less -y
-
-
-
-
-
-
-
-
-
-
-
-# squash down to one compressed layer, without any lingering whiteout files etc
-FROM scratch
-COPY --from=build / /
-# add metadata, must be done after the squashing
-# first tell systemd that it is in docker (it will check for the container env)
-# https://systemd.io/CONTAINER_INTERFACE/
-ENV container docker
-# systemd exits on SIGRTMIN+3, not SIGTERM (which re-executes it)
-# https://bugzilla.redhat.com/show_bug.cgi?id=1201657
-STOPSIGNAL SIGRTMIN+3
-# NOTE: this is *only* for documentation, the entrypoint is overridden later
-ENTRYPOINT [ "/usr/local/bin/entrypoint", "/sbin/init" ]
+RUN apt-get update && apt-get install -y vim && apt-get install less -y
