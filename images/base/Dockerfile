@@ -204,21 +204,6 @@ RUN git clone --filter=tree:0 "${CRI_CLONE_URL}" /root/cri \
     && eval "$(gimme "${GO_VERSION}")" \
     && export GOARCH=$TARGETARCH && export CC=$(target-cc) && export CGO_ENABLED=1 \
     && make build 
-    # && GOARCH=$TARGETARCH go-licenses save --save_path=/_LICENSES .
-# COPY files/cri/cri.tgz /root/
-# RUN tar -xvf /root/cri.tgz -C /root/\
-#     && rm -rf /root/cri.tgz && cd /root/cri \
-#     && eval "$(gimme "${GO_VERSION}")" \
-#     # print the current folder
-#     && pwd \
-#     && export GOARCH=$TARGETARCH && export CC=$(target-cc) && export CGO_ENABLED=1 \
-#     && make build \
-#     && GOARCH=$TARGETARCH go-licenses save --save_path=/_LICENSES .
-
-# tar -xvf /root/cri.tgz -C /root/ && rm -rf /root/cri.tgz
-# WORKDIR /root/cri
-# RUN make build
-
 
 # build final image layout from other stages
 FROM base as build
@@ -251,16 +236,6 @@ COPY --from=build-fuse-overlayfs /fuse-overlayfs-snapshotter/bin/containerd-fuse
 COPY --from=build-fuse-overlayfs /_LICENSES/* /LICENSES/
 # copy over cri and install
 COPY --from=build-cri /root/cri/bin/virtual-kubelet /usr/local/bin/
-
-
-
-
-# install go
-# RUN apt-get update && apt-get install make -y
-# # RUN wget https://go.dev/dl/go1.21.0.linux-amd64.tar.gz
-# COPY files/go1.21.0.linux-amd64.tar.gz /root/
-# RUN rm -rf /usr/local/go && tar -C /usr/local -xzf /root/go1.21.0.linux-amd64.tar.gz && rm -rf /root/go1.21.0.linux-amd64.tar.gz
-# ENV PATH=$PATH:/usr/local/go/bin
 
 
 # squash down to one compressed layer, without any lingering whiteout files etc
